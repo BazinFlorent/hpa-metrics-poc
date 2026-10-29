@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hpa-demo-app
+  namespace: hpa-demo
+  labels:
+    app: hpa-demo-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hpa-demo-app
+  template:
+    metadata:
+      labels:
+        app: hpa-demo-app
+    spec:
+      containers:
+        - name: api
+          image: registry.hpa-metrics-autoscaling.local:5001/hpa-poc/fastapi:v0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
