@@ -1,18 +1,23 @@
+
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: hpa-demo-app
+  name: hpa-metrics-poc-app
   namespace: monitoring
   labels:
-    monitoring: hpa-poc
+    monitoring: hpa-metrics-poc
+
 spec:
   namespaceSelector:
     matchNames:
-      - hpa-demo
+      - hpa-metrics-poc
+
   selector:
     matchLabels:
-      app: hpa-demo-app
+      app: hpa-metrics-poc-app
+
   endpoints:
     - port: http
       path: /metrics
       interval: 10s
+

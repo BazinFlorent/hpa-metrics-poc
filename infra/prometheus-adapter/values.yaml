@@ -1,26 +1,11 @@
-# Adaptateur entre Prometheus et l'API Custom Metrics de Kubernetes.
-# Étape actuelle : seule la métrique HTTP RPS par Pod est exposée.
+
+# Adaptateur Prometheus vers les APIs de métriques Kubernetes.
+
 prometheus:
-  url: http://hpa-monitoring-kube-promet-prometheus.monitoring.svc.cluster.local
+  url: http://hpa-metrics-poc-monitoring-prometheus.monitoring.svc.cluster.local
   port: 9090
 
 metricsRelistInterval: 30s
-
-rules:
-  default: false
-  custom:
-    - seriesQuery: 'demo_http_requests_total{namespace="hpa-demo",pod!="",mode="cpu"}'
-      resources:
-        overrides:
-          namespace:
-            resource: namespace
-          pod:
-            resource: pod
-      name:
-        matches: '^demo_http_requests_total$'
-        as: 'http_requests_per_second'
-      metricsQuery: 'sum by (<<.GroupBy>>) (rate(demo_http_requests_total{<<.LabelMatchers>>,mode="cpu"}[1m]))'
-  external: []
 
 resources:
   requests:
@@ -29,3 +14,24 @@ resources:
   limits:
     cpu: 250m
     memory: 256Mi
+
+rules:
+  default: false
+
+  custom:
+    - seriesQuery: 'demo_http_requests_total{namespace="hpa-metrics-poc",pod!="",mode="cpu"}'
+
+      resources:
+        overrides:
+          namespace:
+            resource: namespace
+          pod:
+            resource: pod
+
+      name:
+        matches: '^demo_http_requests_total$'
+        as: http_requests_per_second
+
+      metricsQuery: 'sum by (<<.GroupBy>>) (rate(demo_http_requests_total{<<.LabelMatchers>>,mode="cpu"}[1m]))'
+
+  external: []
