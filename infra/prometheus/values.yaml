@@ -1,0 +1,45 @@
+# Minimal Prometheus Operator stack for the HPA metrics POC.
+defaultRules:
+  create: false
+grafana:
+  enabled: false
+alertmanager:
+  enabled: false
+kubeStateMetrics:
+  enabled: false
+nodeExporter:
+  enabled: false
+prometheus-node-exporter:
+  enabled: false
+kube-state-metrics:
+  enabled: false
+kubeApiServer:
+  enabled: false
+kubelet:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+coreDns:
+  enabled: false
+kubeDns:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+prometheus:
+  enabled: true
+  prometheusSpec:
+    replicas: 1
+    retention: 6h
+    scrapeInterval: 10s
+    evaluationInterval: 10s
+    serviceMonitorNamespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: monitoring
+    serviceMonitorSelector:
+      matchLabels:
+        monitoring: hpa-poc
+    storageSpec: {}
