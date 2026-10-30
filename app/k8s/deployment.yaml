@@ -1,23 +1,24 @@
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: hpa-demo-app
-  namespace: hpa-demo
+  name: hpa-metrics-poc-app
+  namespace: hpa-metrics-poc
   labels:
-    app: hpa-demo-app
+    app: hpa-metrics-poc-app
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: hpa-demo-app
+      app: hpa-metrics-poc-app
   template:
     metadata:
       labels:
-        app: hpa-demo-app
+        app: hpa-metrics-poc-app
     spec:
       containers:
-        - name: api
-          image: registry.hpa-metrics-autoscaling.local:5001/hpa-poc/fastapi:v0.1.0
+        - name: hpa-metrics-poc-app
+          image: hpa-metrics-poc-app:0.1.1
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
