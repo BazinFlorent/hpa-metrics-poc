@@ -16,6 +16,14 @@ REQUESTS = Counter(
     "Completed work requests, partitioned by HTTP status and workload mode.",
     ["method", "mode", "status"],
 )
+
+for mode in ("cpu", "io"):
+    REQUESTS.labels(
+        method="GET",
+        mode=mode,
+        status="200"
+    )
+    
 IN_PROGRESS = Gauge(
     "demo_http_requests_in_progress",
     "Work requests currently being processed by this application instance.",
