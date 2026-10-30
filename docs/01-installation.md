@@ -8,7 +8,7 @@ Les commandes sont exécutées **depuis la racine du dépôt**, sauf indication 
 
 ### 1.1. Création du cluster
 
-Le projet utilise `platform-bootstrap` pour créer un cluster kind à trois nœuds et son infrastructure locale. La registry OCI du bootstrap n'est pas nécessaire au déploiement de l'application dans ce POC.
+Le projet utilise [platform-bootstrap](https://github.com/BazinFlorent/platform-dev-bootstrap) pour créer un cluster kind à trois nœuds et son infrastructure locale. La registry OCI du bootstrap n'est pas nécessaire au déploiement de l'application dans ce POC.
 
 ```bash
 platform-bootstrap -n hpa-metrics-poc bootstrap
