@@ -1,6 +1,6 @@
 # Scénarios de démonstration — HPA Metrics POC
 
-> **Statut :** storyboard de démonstration. Le socle FastAPI → Prometheus → Prometheus Adapter → API Custom Metrics a été validé. Les HPA, les scripts k6 et la chaîne External Metrics décrits ci-dessous restent à mettre en œuvre et à vérifier.
+> **Statut au 31 octobre 2026 :** socle Custom Metrics et scénarios **S1/S2 validés** (montée 1 → 3 replicas, retour 3 → 1). Comparaison CPU/RPS, charges par paliers et External Metrics restent à réaliser.
 >
 > **Objectif :** démontrer comment Kubernetes adapte le nombre de Pods selon différents signaux de charge, puis analyser les délais, les limites et les conditions d'éligibilité d'une application à l'autoscaling.
 
@@ -18,7 +18,7 @@ Le socle est construit selon [01-installation.md](01-installation.md). Les princ
 | Métrique Custom | `http_requests_per_second` (par Pod, mode CPU) |
 | Métrique source | `demo_http_requests_total` |
 | Mesure RPS | `rate(...[1m])` |
-| Point de départ | 1 replica, HPA absent |
+| Point de départ S1/S2 | 1 replica, HPA RPS créé pour le test |
 
 **Précautions de démonstration :**
 
@@ -65,10 +65,10 @@ Mesures à consigner pour chaque essai : RPS total réellement atteint, RPS par 
 | Scénario | Question démontrée | Signal | Statut |
 |---|---|---|---|
 | S0 — État de référence | Kubernetes lit-il une métrique métier sans HPA ? | Custom Metrics API | Socle validé |
-| S1 — Montée en charge RPS | Le HPA augmente-t-il les replicas sur RPS/Pod ? | Custom `Pods` | À réaliser |
-| S2 — Retour à la normale | Le HPA réduit-il les replicas de manière stabilisée ? | Custom `Pods` | À réaliser |
+| S1 — Montée en charge RPS | Le HPA augmente-t-il les replicas sur RPS/Pod ? | Custom `Pods` | **Validé** |
+| S2 — Retour à la normale | Le HPA réduit-il les replicas de manière stabilisée ? | Custom `Pods` | **Validé** |
 | S3 — Comparaison CPU / RPS | Deux signaux produisent-ils des décisions différentes ? | CPU puis Custom | À réaliser |
-| S4 — Charge par paliers et saturation | Comment la boucle réagit-elle à des paliers et à un pic ? | k6, Custom | À réaliser |
+| S4 — Charge par paliers et saturation | Comment la boucle réagit-elle à des paliers et à un pic ? | k6, Custom | Préparation : k6 constant 15 RPS validé en S1 ; paliers à réaliser |
 | S5 — Charge globale indépendante | Le HPA peut-il scaler sur une file simulée ? | External `AverageValue` | À concevoir et réaliser |
 | S6 — Limites d'architecture | Où s'arrêtent les bénéfices du HPA ? | Readiness, warmup, goulots | À réaliser |
 
@@ -101,7 +101,7 @@ Mesures à consigner pour chaque essai : RPS total réellement atteint, RPS par 
 
 ### Préparation
 
-Créer `autoscaling/hpa-custom-rps.yaml` (configuration proposée, pas encore validée) :
+Manifeste `autoscaling/hpa-custom-rps.yaml` **appliqué et validé** :
 
 ```yaml
 apiVersion: autoscaling/v2
@@ -147,34 +147,100 @@ kubectl get hpa hpa-metrics-poc-rps -n hpa-metrics-poc
 kubectl describe hpa hpa-metrics-poc-rps -n hpa-metrics-poc
 ```
 
-### Charge et observations
+### Charge k6 utilisée
 
-Pour un essai exploratoire, injecter des requêtes CPU en continu ; pour l'essai reproductible, utiliser le scénario k6 à débit d'arrivée constant décrit en S4.
+Le test validé utilise un **Job k6 exécuté dans le cluster** contre le Service Kubernetes (pas de port-forward), avec un scénario `constant-arrival-rate` : **15 itérations/seconde visées pendant 3 minutes**, chaque itération envoyant une requête `GET /work?mode=cpu&duration_ms=100`. Le débit effectivement obtenu doit être confirmé dans le résumé k6 pour toute comparaison chiffrée ultérieure.
 
-Observer simultanément : le RPS mesuré, `TARGETS`, `DESIRED`, `CURRENT`, les événements HPA et les nouveaux Pods `Ready`.
+Fichiers utilisés : `load-tests/constant-load.js` et `load-tests/k8s/job-constant-load.yaml`. Le Job charge le script depuis un ConfigMap `hpa-k6-script`.
 
-**Exemple théorique :** avec 1 Pod mesurant 7 RPS et une cible de 5 RPS, le calcul de base donne `ceil(1 × 7/5) = 2` replicas. Le résultat réel peut différer à cause des règles HPA et des métriques manquantes.
+```bash
+kubectl create configmap hpa-k6-script \
+  --from-file=constant-load.js=load-tests/constant-load.js \
+  -n hpa-metrics-poc \
+  --dry-run=client -o yaml | kubectl apply -f -
 
-**Point de vigilance majeur :** un générateur qui reste accroché au premier Pod peut laisser ses nouveaux voisins à `0 RPS`. Il faut valider la répartition de la charge pour interpréter l'équilibrage et les résultats.
+kubectl apply -f load-tests/k8s/job-constant-load.yaml
+kubectl logs -n hpa-metrics-poc job/hpa-k6-s1 -f
+```
 
-### Critère de succès
+Surveillance simultanée :
 
-Le HPA renseigne sa métrique, recommande plus d'un replica et le Deployment crée au moins un Pod supplémentaire qui devient `Ready`.
+```bash
+watch -n 2 'kubectl get hpa,pods -n hpa-metrics-poc'
+```
+
+Pour les décisions du contrôleur :
+
+```bash
+kubectl describe hpa hpa-metrics-poc-rps -n hpa-metrics-poc
+```
+
+### Résultats observés — 31 octobre 2026
+
+| Indicateur | Observation |
+|---|---|
+| Cible du HPA | `5` RPS moyens par Pod |
+| Charge k6 configurée | 15 requêtes/s visées pendant 3 min |
+| Replicas | **1 → 2 → 3** |
+| Valeur `TARGETS` observée à 3 replicas | `4980m/5`, soit **4,98 RPS/Pod** |
+| Pods applicatifs à 3 replicas | Trois Pods `1/1 Running` |
+| Pod k6 | `Completed` |
+| Événements HPA | Deux événements `SuccessfulRescale`, motifs `pods metric http_requests_per_second above target` |
+
+![HPA et Pods pendant le palier de charge — 3 replicas](images/hpa-s1-trois-replicas.png)
+
+Les trois replicas sont cohérents avec la cible : **15 RPS offerts / 5 RPS par Pod = 3 Pods**, sous réserve du débit effectivement soutenu. Le chiffre `4980m` constitue une mesure ponctuelle du HPA, et non une moyenne sur la totalité du test.
+
+**Résultat S1 : validé.** Le HPA a augmenté la capacité sur une métrique applicative personnalisée, sans KEDA.
 
 ## 5. S2 — Scale-down et stabilisation
 
-**Hypothèse :** après disparition de la charge, les RPS diminuent puis le HPA revient progressivement vers `minReplicas`.
+**Hypothèse :** à l'arrêt de k6, la métrique RPS retourne à zéro puis le HPA revient progressivement à `minReplicas: 1`.
 
-Procédure :
+### Procédure
 
-1. Conserver le HPA de S1 et plusieurs Pods si la montée en charge a fonctionné.
-2. Arrêter la génération de trafic.
-3. Observer la baisse du RPS dans Prometheus puis dans `kubectl get hpa -w`.
-4. Mesurer le délai jusqu'au retour à un replica.
+Laisser terminer le Job k6 de S1, puis continuer à observer :
 
-**Interprétation :** deux temporisations se superposent : la fenêtre PromQL d'une minute et la fenêtre HPA de stabilisation à la baisse (`60s` dans notre manifeste). Il faut aussi tenir compte de la fréquence de collecte, de la réconciliation HPA et d'éventuelles métriques manquantes. **Ne pas interpréter 60 secondes comme un délai de descente garanti.**
+```bash
+watch -n 2 'kubectl get hpa,pods -n hpa-metrics-poc'
+```
 
-**Critère de succès :** retour vers un seul replica sans oscillations répétées non expliquées.
+```bash
+kubectl describe hpa hpa-metrics-poc-rps -n hpa-metrics-poc
+```
+
+### Résultats observés — 31 octobre 2026
+
+Chronologie des événements `SuccessfulRescale` :
+
+```text
+New size: 2; reason: pods metric http_requests_per_second above target
+New size: 3; reason: pods metric http_requests_per_second above target
+New size: 2; reason: All metrics below target
+```
+
+Le retour final à un replica est confirmé par :
+
+```text
+NAME                  REFERENCE                       TARGETS   MINPODS   MAXPODS   REPLICAS
+hpa-metrics-poc-rps   Deployment/hpa-metrics-poc-app   0/5       1         5         1
+```
+
+**Résultat S2 : validé.** La réduction observée suit **3 → 2 → 1**, jusqu'au minimum autorisé. `TARGETS=0/5` signifie un RPS moyen nul et non « zéro replica ».
+
+**Interprétation :** la descente dépend de la fenêtre `rate(...[1m])`, des cycles de scrape, de la réconciliation HPA et de `scaleDown.stabilizationWindowSeconds: 60`. Cette dernière n'est **pas** une promesse de retour en 60 secondes.
+
+### Synthèse S1/S2
+
+| Étape | Charge / signal | Replicas |
+|---|---|---:|
+| Repos initial | Environ 0 RPS | 1 |
+| Première augmentation | RPS supérieur à 5/Pod | 2 |
+| Charge maintenue | `TARGETS=4980m/5` au moment de la capture | 3 |
+| Arrêt du Job | Débit en décroissance puis nul | 3 → 2 |
+| Retour au repos | `TARGETS=0/5` | 1 |
+
+**Limite des preuves collectées :** nous n'avons pas encore conservé le résumé complet de k6 (`http_reqs`, `dropped_iterations`, erreurs et latence p95) ni les horodatages absolus des décisions HPA. Il serait utile de les capturer lors d'une éventuelle répétition du test, mais ils ne sont pas requis pour confirmer les scale-up/scale-down déjà observés.
 
 ## 6. S3 — Comparer HPA CPU et HPA RPS
 
@@ -322,7 +388,7 @@ Ce scénario est une **discussion structurée à partir des mesures**, plutôt q
 
 ## 10. Synthèse et traçabilité des résultats
 
-Pour chaque scénario, renseigner après exécution :
+Pour les prochains scénarios, et en complément des résultats S1/S2 ci-dessus, renseigner après exécution :
 
 | Champ | Valeur à relever |
 |---|---|

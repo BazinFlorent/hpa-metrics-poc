@@ -1,0 +1,30 @@
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hpa-k6-s1
+  namespace: hpa-metrics-poc
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: k6
+          image: grafana/k6:latest
+          command:
+            - k6
+            - run
+            - /scripts/constant-load.js
+          env:
+            - name: BASE_URL
+              value: http://hpa-metrics-poc-svc.hpa-metrics-poc.svc.cluster.local
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: hpa-k6-script
