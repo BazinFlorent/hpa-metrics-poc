@@ -332,7 +332,119 @@ helm get values hpa-metrics-poc-adapter -n monitoring
 | `value: "0"` | Absence de trafic récent ou fenêtre de calcul `rate()` |
 | Série absente après redémarrage | Préinitialisation du compteur et découverte des séries |
 
-## 4. Bilan et gestion de l'environnement
+## 4. Installation et validation de Metrics Server
+
+### 4.1. Objectif
+
+Metrics Server expose les métriques de consommation CPU et mémoire des nœuds et des Pods via l'API Kubernetes `metrics.k8s.io`.
+
+Il permet notamment au HPA d'appliquer des politiques d'autoscaling fondées sur l'utilisation CPU ou mémoire, indépendamment de la chaîne Prometheus et Prometheus Adapter.
+
+Le composant est absent de notre cluster kind initial et doit être installé séparément.
+
+### 4.2. Configuration
+
+Le fichier `infra/metrics-server/values.yaml` définit une installation minimale :
+
+```yaml
+replicas: 1
+
+args:
+  - --kubelet-insecure-tls
+  - --kubelet-preferred-address-types=InternalIP,Hostname
+  - --metric-resolution=15s
+```
+
+L'option `--kubelet-insecure-tls` désactive la vérification des certificats des kubelets. Elle est utilisée uniquement pour notre environnement local kind et ne doit pas être reprise telle quelle en production.
+
+### 4.3. Vérification du rendu Helm
+
+Depuis la racine du projet :
+
+```bash
+helm repo add metrics-server \
+  https://kubernetes-sigs.github.io/metrics-server/
+
+helm repo update
+
+helm template metrics-server \
+  metrics-server/metrics-server \
+  --version 3.14.0 \
+  --namespace kube-system \
+  -f infra/metrics-server/values.yaml \
+  > /tmp/hpa-metrics-poc-metrics-server.yaml
+```
+
+La commande de génération doit se terminer sans erreur.
+
+### 4.4. Installation
+
+```bash
+helm upgrade --install metrics-server \
+  metrics-server/metrics-server \
+  --version 3.14.0 \
+  --namespace kube-system \
+  -f infra/metrics-server/values.yaml \
+  --wait
+```
+
+Vérifier le Deployment et l'APIService :
+
+```bash
+kubectl get deployment metrics-server -n kube-system
+kubectl get apiservice v1beta1.metrics.k8s.io
+```
+
+**Résultat observé :** Deployment `1/1 Ready`. L'APIService indiquait initialement `False (FailedDiscoveryCheck)` peu après le déploiement, alors que les requêtes de métriques fonctionnaient déjà.
+
+Vérifier sa disponibilité stabilisée :
+
+```bash
+kubectl get apiservice v1beta1.metrics.k8s.io
+```
+
+Le résultat attendu est `AVAILABLE=True`.
+
+### 4.5. Validation des métriques CPU et mémoire
+
+```bash
+kubectl top nodes
+kubectl top pods -n hpa-metrics-poc
+```
+
+**Résultats observés sur le cluster :**
+
+| Ressource | CPU | Mémoire |
+|---|---:|---:|
+| Control-plane | 151m | 941 Mi |
+| Worker | 38m | 310 Mi |
+| Worker2 | 40m | 427 Mi |
+| Pod FastAPI | 3m | 37 Mi |
+
+Les métriques sont bien accessibles depuis Kubernetes.
+
+Vérification complémentaire de l'API :
+
+```bash
+kubectl get --raw \
+  '/apis/metrics.k8s.io/v1beta1/namespaces/hpa-metrics-poc/pods' \
+  | python -m json.tool
+```
+
+Cette requête permet d'accéder directement aux consommations CPU et mémoire des Pods via l'API Kubernetes.
+
+### Critère de validation
+
+Metrics Server est considéré comme opérationnel lorsque :
+
+- Son Deployment est disponible.
+- L'APIService `v1beta1.metrics.k8s.io` est disponible.
+- `kubectl top nodes` et `kubectl top pods` retournent des mesures.
+- L'API `metrics.k8s.io` retourne les consommations des Pods.
+
+**Jalon : collecte des métriques de ressources fonctionnelle.** Les valeurs CPU et mémoire sont accessibles au HPA pour le scénario de comparaison avec les Custom Metrics RPS.
+
+## 5. Bilan et gestion de l'environnement
 
 | Contrôle | Résultat validé |
 |---|---|
@@ -342,6 +454,7 @@ helm get values hpa-metrics-poc-adapter -n monitoring
 | Prometheus | Target applicative `UP` et calcul RPS par Pod |
 | Prometheus Adapter | API `custom.metrics.k8s.io/v1beta1` accessible |
 | Métrique Custom | `pods/http_requests_per_second` découverte et lue sous charge (6,614 RPS observés) |
+| Metrics Server | Deployment opérationnel, métriques CPU/RAM accessibles via `kubectl top` et l'API `metrics.k8s.io` |
 
 **Frontière documentaire :** cette procédure installe les composants et valide l'accès aux métriques. Les manifests HPA, les seuils, les tests de montée en charge k6 et l'analyse des comportements d'autoscaling figurent dans [`02-demonstration.md`](02-demonstration.md).
 
