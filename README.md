@@ -35,7 +35,7 @@ flowchart TB
 - [x] Application FastAPI instrumentée
 - [x] Collecte des métriques par Prometheus
 - [x] Exposition des Custom Metrics à Kubernetes
-- [ ] Autoscaling HPA piloté par les RPS
+- [x] Autoscaling HPA piloté par les RPS
 - [ ] Comparaison avec le HPA CPU
 - [ ] Autoscaling sur External Metrics
 - [ ] Scénarios de charge k6
